@@ -106,29 +106,16 @@ function install_knative(){
   RELEASE_YAML="https://raw.githubusercontent.com/openshift/knative-serving/${CURRENT_GIT_BRANCH}/openshift/release/knative-serving-ci.yaml"
   sed "s|--filename=.*|--filename=${RELEASE_YAML}|"  openshift/olm/knative-serving.catalogsource.yaml > knative-serving.catalogsource-ci.yaml
 
-  # Install CatalogSources in OLM namespace
+  # Install CatalogSource in OLM namespace
   oc apply -n $OLM_NAMESPACE -f knative-serving.catalogsource-ci.yaml
   timeout 900 '[[ $(oc get pods -n $OLM_NAMESPACE | grep -c knative) -eq 0 ]]' || return 1
   wait_until_pods_running $OLM_NAMESPACE
 
-  # Install Knative Build
-  oc adm policy add-scc-to-user anyuid -z build-controller -n knative-build
-  oc adm policy add-cluster-role-to-user cluster-admin -z build-controller -n knative-build
-  oc apply -f third_party/config/build/release.yaml
-
-  # Install Tekton Pipeline
-  oc adm policy add-scc-to-user anyuid -z build-pipeline-controller -n knative-build-pipeline
-  oc adm policy add-cluster-role-to-user cluster-admin -z build-pipeline-controller -n knative-build-pipeline
-  oc apply -f third_party/config/pipeline/release.yaml
-
-  # Deploy Knative Operators Serving
+  # Deploy Knative Serving Operator
   deploy_knative_operator serving
 
   # Create imagestream for images generated in CI namespace
   tag_core_images openshift/release/knative-serving-ci.yaml
-
-  wait_until_pods_running knative-build || return 1
-  wait_until_pods_running knative-build-pipeline || return 1
 
   # Wait for 6 pods to appear first
   timeout 900 '[[ $(oc get pods -n $SERVING_NAMESPACE --no-headers | wc -l) -lt 6 ]]' || return 1
@@ -258,14 +245,9 @@ function run_e2e_tests(){
 }
 
 function delete_knative_openshift() {
-  echo ">> Bringing down Knative Serving, Build and Pipeline"
+  echo ">> Bringing down Knative Serving"
   oc delete --ignore-not-found=true -n $OLM_NAMESPACE -f knative-serving.catalogsource-ci.yaml
-  oc delete --ignore-not-found=true -f third_party/config/build/release.yaml
-  oc delete --ignore-not-found=true -f third_party/config/pipeline/release.yaml
-
   oc delete project $SERVING_NAMESPACE
-  oc delete project knative-build
-  oc delete project knative-build-pipeline
 }
 
 function delete_test_resources_openshift() {
