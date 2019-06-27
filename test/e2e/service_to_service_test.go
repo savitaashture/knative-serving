@@ -98,7 +98,7 @@ func testProxyToHelloworld(t *testing.T, clients *test.Clients, helloworldDomain
 		clients.KubeClient,
 		t.Logf,
 		domain,
-		pkgTest.Retrying(pkgTest.IsStatusOK, http.StatusNotFound),
+		pkgTest.Retrying(pkgTest.IsStatusOK, http.StatusNotFound, http.StatusServiceUnavailable),
 		"HTTPProxy",
 		test.ServingFlags.ResolvableDomain); err != nil {
 		t.Fatalf("Failed to start endpoint of httpproxy: %v", err)
@@ -139,7 +139,6 @@ func testProxyToHelloworld(t *testing.T, clients *test.Clients, helloworldDomain
 // The expected result is that the request sent to httpproxy app is successfully redirected
 // to helloworld app.
 func TestServiceToServiceCall(t *testing.T) {
-	t.Skip("Known to be broken in non-mesh cases.")
 	t.Parallel()
 	cancel := logstream.Start(t)
 	defer cancel()
@@ -186,7 +185,6 @@ func TestServiceToServiceCall(t *testing.T) {
 // Same test as TestServiceToServiceCall but before sending requests
 // we're waiting for target app to be scaled to zero
 func TestServiceToServiceCallFromZero(t *testing.T) {
-	t.Skip("Known to be broken in non-mesh cases.")
 	t.Parallel()
 	cancel := logstream.Start(t)
 	defer cancel()
