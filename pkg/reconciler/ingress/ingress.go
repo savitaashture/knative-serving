@@ -32,8 +32,9 @@ import (
 	istiolisters "knative.dev/pkg/client/listers/istio/v1alpha3"
 	"knative.dev/pkg/configmap"
 	"knative.dev/pkg/controller"
-	podinformer "knative.dev/pkg/injection/informers/kubeinformers/corev1/pod"
+	endpointsinformer "knative.dev/pkg/injection/informers/kubeinformers/corev1/endpoints"
 	secretinformer "knative.dev/pkg/injection/informers/kubeinformers/corev1/secret"
+	serviceinformer "knative.dev/pkg/injection/informers/kubeinformers/corev1/service"
 	"knative.dev/pkg/tracker"
 
 	"go.uber.org/zap"
@@ -136,7 +137,8 @@ func (r *Reconciler) Init(ctx context.Context, cmw configmap.Watcher, impl *cont
 	r.Logger.Info("Setting up Ingress event handlers")
 	ingressInformer := ingressinformer.Get(ctx)
 	gatewayInformer := gatewayinformer.Get(ctx)
-	podInformer := podinformer.Get(ctx)
+	endpointsInformer := endpointsinformer.Get(ctx)
+	serviceInformer := serviceinformer.Get(ctx)
 
 	myFilterFunc := reconciler.AnnotationFilterFunc(networking.IngressClassAnnotationKey, network.IstioIngressClassName, true)
 	ingressHandler := cache.FilteringResourceEventHandler{
@@ -168,8 +170,13 @@ func (r *Reconciler) Init(ctx context.Context, cmw configmap.Watcher, impl *cont
 		// Reconcile when a VirtualService becomes ready
 		impl.EnqueueLabelOfNamespaceScopedResource(serving.RouteNamespaceLabelKey, serving.RouteLabelKey)(vs)
 	}
-	statusProber := NewStatusProber(r.Logger.Named("status-manager"), gatewayInformer.Lister(),
-		podInformer.Lister(), network.NewAutoTransport, resyncIngressOnVirtualServiceReady)
+	statusProber := NewStatusProber(
+		r.Logger.Named("status-manager"),
+		gatewayInformer.Lister(),
+		endpointsInformer.Lister(),
+		serviceInformer.Lister(),
+		network.NewAutoTransport,
+		resyncIngressOnVirtualServiceReady)
 	r.StatusManager = statusProber
 	statusProber.Start(ctx.Done())
 

@@ -20,8 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,6 +41,7 @@ import (
 	"knative.dev/serving/pkg/network/prober"
 	"knative.dev/serving/pkg/reconciler/ingress/resources"
 
+	corev1 "k8s.io/api/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 	istiolisters "knative.dev/pkg/client/listers/istio/v1alpha3"
 )
@@ -87,7 +90,8 @@ type StatusProber struct {
 	workQueue workqueue.RateLimitingInterface
 
 	gatewayLister    istiolisters.GatewayLister
-	podLister        corev1listers.PodLister
+	endpointsLister  corev1listers.EndpointsLister
+	serviceLister    corev1listers.ServiceLister
 	transportFactory func() http.RoundTripper
 
 	readyCallback func(*v1alpha3.VirtualService)
@@ -101,7 +105,8 @@ type StatusProber struct {
 func NewStatusProber(
 	logger *zap.SugaredLogger,
 	gatewayLister istiolisters.GatewayLister,
-	podLister corev1listers.PodLister,
+	endpointsLister corev1listers.EndpointsLister,
+	serviceLister corev1listers.ServiceLister,
 	transportFactory func() http.RoundTripper,
 	readyCallback func(*v1alpha3.VirtualService)) *StatusProber {
 	return &StatusProber{
@@ -111,7 +116,8 @@ func NewStatusProber(
 			workqueue.DefaultControllerRateLimiter(),
 			"ProbingQueue"),
 		gatewayLister:    gatewayLister,
-		podLister:        podLister,
+		endpointsLister:  endpointsLister,
+		serviceLister:    serviceLister,
 		transportFactory: transportFactory,
 		readyCallback:    readyCallback,
 		probeConcurrency: probeConcurrency,
@@ -187,6 +193,7 @@ func (m *StatusProber) IsReady(vs *v1alpha3.VirtualService) (bool, error) {
 			podIP:        podIP,
 		}
 		m.workQueue.AddRateLimited(workItem)
+		m.logger.Infof("Queuing probe for %s (depth: %d)", workItem.probeHost, m.workQueue.Len())
 	}
 
 	return len(podIPs) == 0, nil
@@ -255,6 +262,7 @@ func (m *StatusProber) processWorkItem() bool {
 	if !ok {
 		m.logger.Fatalf("Unexpected work item type: want: %s, got: %s\n", "*workItem", reflect.TypeOf(obj).Name())
 	}
+	m.logger.Infof("Processing probe for %s (depth: %d)", item.probeHost, m.workQueue.Len())
 
 	ok, err := prober.Do(
 		item.context,
@@ -275,7 +283,7 @@ func (m *StatusProber) processWorkItem() bool {
 	if err != nil || !ok {
 		// In case of error, enqueue for retry
 		m.workQueue.AddRateLimited(obj)
-		m.logger.Errorf("Probing of %s failed: ready: %t, error: %v", item.podIP, ok, err)
+		m.logger.Errorf("Probing of %s failed: ready: %t, error: %v (depth: %d)", item.podIP, ok, err, m.workQueue.Len())
 	} else {
 		// In case of success, update the state
 		if atomic.AddInt32(&item.pendingCount, -1) == 0 {
@@ -312,7 +320,7 @@ func (m *StatusProber) listVirtualServicePodIPs(vs *v1alpha3.VirtualService) ([]
 			continue
 		}
 
-		// List matching Pods
+		// List matching endpoints
 		selector := labels.NewSelector()
 		for key, value := range gateway.Spec.Selector {
 			requirement, err := labels.NewRequirement(key, selection.Equals, []string{value})
@@ -321,17 +329,67 @@ func (m *StatusProber) listVirtualServicePodIPs(vs *v1alpha3.VirtualService) ([]
 			}
 			selector = selector.Add(*requirement)
 		}
-		pods, err := m.podLister.List(selector)
+
+		services, err := m.serviceLister.List(selector)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list Pods: %v", err)
+			return nil, fmt.Errorf("failed to list Services: %v", err)
+		}
+		if len(services) == 0 {
+			m.logger.Infof("Skip Gateway %s/%s because it has no corresponding Service", gateway.Namespace, gateway.Name)
+			continue
+		}
+		service := services[0]
+
+		endpoints, err := m.endpointsLister.List(selector)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list Endpoints: %v", err)
 		}
 
-		// Filter out the Pods without an assigned IP address
-		for _, pod := range pods {
-			if pod.Status.PodIP != "" {
-				podIPs = append(podIPs, pod.Status.PodIP)
+		for _, server := range gateway.Spec.Servers {
+			if len(server.Hosts) != 1 ||
+				server.Hosts[0] != "*" ||
+				server.Port.Protocol != v1alpha3.ProtocolHTTP {
+				continue
+			}
+
+			portName, err := findNameForPortNumber(service, int32(server.Port.Number))
+			if err != nil {
+				return nil, fmt.Errorf("failed to find port name: %v", err)
+			}
+			for _, eps := range endpoints {
+				for _, sub := range eps.Subsets {
+					portNumber, err := findPortNumberForName(sub, portName)
+					if err != nil {
+						return nil, fmt.Errorf("failed to find port number: %v", err)
+					}
+
+					portStr := strconv.Itoa(int(portNumber))
+					for _, addr := range sub.Addresses {
+						podIPs = append(podIPs, net.JoinHostPort(addr.IP, portStr))
+					}
+				}
 			}
 		}
 	}
 	return podIPs, nil
+}
+
+// findNameForPortNumber finds the name for a given port as defined by a Service.
+func findNameForPortNumber(svc *corev1.Service, portNumber int32) (string, error) {
+	for _, port := range svc.Spec.Ports {
+		if port.Port == portNumber {
+			return port.Name, nil
+		}
+	}
+	return "", fmt.Errorf("no port with number %d found", portNumber)
+}
+
+// findPortNumberForName resolves a given name to a portNumber as defined by an EndpointSubset.
+func findPortNumberForName(sub corev1.EndpointSubset, portName string) (int32, error) {
+	for _, subPort := range sub.Ports {
+		if subPort.Name == portName {
+			return subPort.Port, nil
+		}
+	}
+	return 0, fmt.Errorf("no port for name %q found", portName)
 }
