@@ -138,29 +138,21 @@ data:
         description: |
           The Red Hat Serverless Operator provides a collection of API's to
           install various "serverless" services.
-
           # Knative Serving
-
           Knative Serving builds on Kubernetes to support deploying and
           serving of serverless applications and functions. Serving is easy
           to get started with and scales to support advanced scenarios. The
           Knative Serving project provides middleware primitives that
           enable:
-
           - Rapid deployment of serverless containers
           - Automatic scaling up and down to zero
           - Routing and network programming for Istio components
           - Point-in-time snapshots of deployed code and configurations
-
           ## Prerequisites
-
           ### Istio
-
           Knative requires Istio. A minimal Maistra ControlPlane can be
           installed using the Maistra operator.
-
           ## Further Information
-
           For documentation on using Knative Serving, see the
           [serving section](https://www.knative.dev/docs/serving/) of the
           [Knative documentation site](https://www.knative.dev/docs).
@@ -309,7 +301,7 @@ data:
                     serviceAccountName: knative-openshift-ingress
                     containers:
                       - name: knative-openshift-ingress
-                        image: quay.io/openshift-knative/knative-openshift-ingress:v0.0.7
+                        image: quay.io/openshift-knative/knative-openshift-ingress:v0.0.8
                         command:
                         - knative-openshift-ingress
                         imagePullPolicy: Always
