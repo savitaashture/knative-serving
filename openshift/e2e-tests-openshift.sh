@@ -14,16 +14,13 @@ readonly INSECURE="${INSECURE:-"false"}"
 readonly TEST_NAMESPACE=serving-tests
 readonly TEST_NAMESPACE_ALT=serving-tests-alt
 readonly SERVING_NAMESPACE=knative-serving
-readonly SERVICEMESH_NAMESPACE=istio-system
+readonly SERVICEMESH_NAMESPACE=knative-serving-ingress
+export GATEWAY_NAMESPACE_OVERRIDE="$SERVICEMESH_NAMESPACE"
 readonly TARGET_IMAGE_PREFIX="$INTERNAL_REGISTRY/$SERVING_NAMESPACE/knative-serving-"
 
 # The OLM global namespace was moved to openshift-marketplace since v4.2
 # ref: https://jira.coreos.com/browse/OLM-1190
-if [ ${HOSTNAME} = "e2e-aws-ocp-41" ]; then
-  readonly OLM_NAMESPACE="openshift-operator-lifecycle-manager"
-else
-  readonly OLM_NAMESPACE="openshift-marketplace"
-fi
+readonly OLM_NAMESPACE="openshift-marketplace"
 
 env
 
@@ -86,45 +83,6 @@ function timeout() {
   return 0
 }
 
-function install_servicemesh(){
-  header "Installing ServiceMesh"
-
-  # Install the ServiceMesh Operator
-  oc apply -f openshift/servicemesh/operator-install.yaml
-
-  # Wait for the istio-operator pod to appear
-  timeout 900 '[[ $(oc get pods -n openshift-operators | grep -c istio-operator) -eq 0 ]]' || return 1
-
-  # Wait until the Operator pod is up and running
-  wait_until_pods_running openshift-operators || return 1
-
-  # Deploy ServiceMesh
-  oc new-project $SERVICEMESH_NAMESPACE
-  oc apply -n $SERVICEMESH_NAMESPACE -f openshift/servicemesh/controlplane-install.yaml
-  cat <<EOF | oc apply -f -
-apiVersion: maistra.io/v1
-kind: ServiceMeshMemberRoll
-metadata:
-  name: default
-  namespace: ${SERVICEMESH_NAMESPACE}
-spec:
-  members:
-  - serving-tests
-  - serving-tests-alt
-  - ${SERVING_NAMESPACE}
-EOF
-
-  # Wait for the ingressgateway pod to appear.
-  timeout 900 '[[ $(oc get pods -n $SERVICEMESH_NAMESPACE | grep -c istio-ingressgateway) -eq 0 ]]' || return 1
-
-  wait_until_service_has_external_ip $SERVICEMESH_NAMESPACE istio-ingressgateway || fail_test "Ingress has no external IP"
-  wait_until_hostname_resolves "$(kubectl get svc -n $SERVICEMESH_NAMESPACE istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
-
-  wait_until_pods_running $SERVICEMESH_NAMESPACE
-
-  header "ServiceMesh installed successfully"
-}
-
 function install_knative(){
   header "Installing Knative"
 
@@ -153,32 +111,26 @@ EOF
   # Create imagestream for images generated in CI namespace
   tag_core_images openshift/release/knative-serving-ci.yaml
 
-  # Wait for 6 pods to appear first
-  timeout 900 '[[ $(oc get pods -n $SERVING_NAMESPACE --no-headers | wc -l) -lt 6 ]]' || return 1
+  # Wait for 4 pods to appear first
+  timeout 900 '[[ $(oc get pods -n $SERVING_NAMESPACE --no-headers | wc -l) -lt 4 ]]' || return 1
   wait_until_pods_running $SERVING_NAMESPACE || return 1
+
+  wait_until_service_has_external_ip $SERVICEMESH_NAMESPACE istio-ingressgateway || fail_test "Ingress has no external IP"
+  wait_until_hostname_resolves "$(kubectl get svc -n $SERVICEMESH_NAMESPACE istio-ingressgateway -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
 
   header "Knative Installed successfully"
 }
 
 function deploy_serverless_operator(){
   local NAME="serverless-operator"
-
-  if oc get crd operatorgroups.operators.coreos.com >/dev/null 2>&1; then
-    cat <<-EOF | oc apply -f -
-apiVersion: operators.coreos.com/v1
-kind: OperatorGroup
-metadata:
-  name: ${NAME}
-  namespace: ${SERVING_NAMESPACE}
-EOF
-  fi
+  local OPERATOR_NS=$(kubectl get og --all-namespaces | grep global-operators | awk '{print $1}')
 
   cat <<-EOF | oc apply -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: ${NAME}-subscription
-  namespace: ${SERVING_NAMESPACE}
+  namespace: ${OPERATOR_NS}
 spec:
   source: ${NAME}
   sourceNamespace: $OLM_NAMESPACE
@@ -297,8 +249,6 @@ scale_up_workers || exit 1
 create_test_namespace || exit 1
 
 failed=0
-
-(( !failed )) && install_servicemesh || failed=1
 
 (( !failed )) && install_knative || failed=1
 
