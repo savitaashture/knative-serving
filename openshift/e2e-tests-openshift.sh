@@ -183,21 +183,21 @@ function run_e2e_tests(){
   failed=0
 
   report_go_test \
-    -v -tags=e2e -count=1 -timeout=35m -short -parallel=1 \
+    -v -tags=e2e -count=1 -timeout=35m -short -parallel=3 \
     ./test/e2e \
     --kubeconfig "$KUBECONFIG" \
     --dockerrepo "${INTERNAL_REGISTRY}/${SERVING_NAMESPACE}" \
     --resolvabledomain || failed=1
 
   report_go_test \
-    -v -tags=e2e -count=1 -timeout=35m -parallel=1 \
+    -v -tags=e2e -count=1 -timeout=35m -parallel=3 \
     ./test/conformance/runtime/... \
     --kubeconfig "$KUBECONFIG" \
     --dockerrepo "${INTERNAL_REGISTRY}/${SERVING_NAMESPACE}" \
     --resolvabledomain || failed=1
 
   report_go_test \
-    -v -tags=e2e -count=1 -timeout=35m -parallel=1 \
+    -v -tags=e2e -count=1 -timeout=35m -parallel=3 \
     ./test/conformance/api/v1alpha1/... \
     --kubeconfig "$KUBECONFIG" \
     --dockerrepo "${INTERNAL_REGISTRY}/${SERVING_NAMESPACE}" \
