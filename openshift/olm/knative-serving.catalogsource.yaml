@@ -367,7 +367,7 @@ data:
                         value: image-registry.openshift-image-registry.svc:5000/knative-serving/knative-serving-istio
                       - name: IMAGE_webhook
                         value: image-registry.openshift-image-registry.svc:5000/knative-serving/knative-serving-webhook
-                      image: savita3020/knative-serving-operator:finaltest
+                      image: savita3020/knative-serving-operator:final
                       imagePullPolicy: Always
                       name: knative-serving-operator
                       resources: {}
