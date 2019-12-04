@@ -18,6 +18,7 @@ package v1
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"knative.dev/pkg/apis"
@@ -49,8 +50,13 @@ func (rs *RevisionSpec) SetDefaults(ctx context.Context) {
 		rs.ContainerConcurrency = ptr.Int64(cfg.Defaults.ContainerConcurrency)
 	}
 
+	fmt.Println("LLLLLLLLLLLLLLLLLLLLLLLLLLLLL", len(rs.PodSpec.Containers))
 	for idx := range rs.PodSpec.Containers {
+		fmt.Println("idxidx", idx)
+		fmt.Println("NANANANNMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM", rs.PodSpec.Containers[idx].Name)
+		fmt.Println("PORTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT", rs.PodSpec.Containers[idx].Ports)
 		if rs.PodSpec.Containers[idx].Name == "" {
+			fmt.Println("comin hererre", cfg.Defaults.UserContainerName(ctx))
 			rs.PodSpec.Containers[idx].Name = cfg.Defaults.UserContainerName(ctx)
 		}
 

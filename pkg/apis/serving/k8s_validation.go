@@ -257,8 +257,18 @@ func ValidatePodSpec(ps corev1.PodSpec) *apis.FieldError {
 		errs = errs.Also(ValidateContainer(ps.Containers[0], volumes).
 			ViaFieldIndex("containers", 0))
 	default:
-		errs = errs.Also(apis.ErrMultipleOneOf("containers"))
+		errs = ValidateMultiContainer(ps.Containers)
+		fmt.Println("ERRORORORORORORO for multiplecontainer", errs)
+		for i := range ps.Containers {
+			errs = errs.Also(ValidateContainer(ps.Containers[i], volumes))
+		}
 	}
+	//case 1:
+	//	errs = errs.Also(ValidateContainer(ps.Containers[0], volumes).
+	//		ViaFieldIndex("containers", 0))
+	//default:
+	//	errs = errs.Also(apis.ErrMultipleOneOf("containers"))
+	//}
 	if ps.ServiceAccountName != "" {
 		for range validation.IsDNS1123Subdomain(ps.ServiceAccountName) {
 			errs = errs.Also(apis.ErrInvalidValue("serviceAccountName", ps.ServiceAccountName))
@@ -315,6 +325,21 @@ func ValidateContainer(container corev1.Container, volumes sets.String) *apis.Fi
 	// VolumeMounts
 	errs = errs.Also(validateVolumeMounts(container.VolumeMounts, volumes).ViaField("volumeMounts"))
 
+	return errs
+}
+
+func ValidateMultiContainer(containers []corev1.Container) *apis.FieldError {
+	cPort := []int32{}
+	var errs *apis.FieldError
+	for i := range containers {
+		for j := range containers[i].Ports {
+			cPort = append(cPort, containers[i].Ports[j].ContainerPort)
+		}
+	}
+	fmt.Println("WHAT IS THE LENGTH of PORTS", len(cPort))
+	if len(cPort) == 0{
+		errs = errs.Also(apis.ErrInvalidValue("invalid container", "ports.containerPort"))
+	}
 	return errs
 }
 

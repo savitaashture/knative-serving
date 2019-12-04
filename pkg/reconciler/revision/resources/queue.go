@@ -196,6 +196,8 @@ func makeQueueContainer(rev *v1alpha1.Revision, loggingConfig *logging.Config, t
 
 	userPort := getUserPort(rev)
 
+	fmt.Println("User port is therererre", userPort)
+
 	var loggingLevel string
 	if ll, ok := loggingConfig.LoggingLevel["queueproxy"]; ok {
 		loggingLevel = ll.String()
@@ -225,6 +227,7 @@ func makeQueueContainer(rev *v1alpha1.Revision, loggingConfig *logging.Config, t
 
 	rp := rev.Spec.GetContainer().ReadinessProbe.DeepCopy()
 
+	fmt.Println("REDAINESS PROBES", rp)
 	applyReadinessProbeDefaults(rp, userPort)
 
 	probeJSON, err := readiness.EncodeProbe(rp)

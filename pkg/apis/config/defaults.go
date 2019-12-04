@@ -26,9 +26,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"knative.dev/pkg/apis"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -55,6 +54,7 @@ const (
 
 // NewDefaultsConfigFromMap creates a Defaults from the supplied Map
 func NewDefaultsConfigFromMap(data map[string]string) (*Defaults, error) {
+	//fmt.Println("FIRSTTTTTTTTTTTTTTTTTTTTTTTTTt")
 	nc := &Defaults{}
 
 	// Process int64 fields
@@ -119,6 +119,7 @@ func NewDefaultsConfigFromMap(data map[string]string) (*Defaults, error) {
 		}
 	}
 
+	////fmt.Println("NAMES ARE COMING FROM HERERERERRERERERER")
 	if raw, ok := data["container-name-template"]; !ok {
 		nc.UserContainerNameTemplate = DefaultUserContainerName
 	} else {

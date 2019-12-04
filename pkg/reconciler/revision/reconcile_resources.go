@@ -43,6 +43,7 @@ func (c *Reconciler) reconcileDeployment(ctx context.Context, rev *v1alpha1.Revi
 		// Deployment does not exist. Create it.
 		rev.Status.MarkResourcesAvailableUnknown(v1alpha1.Deploying, "")
 		rev.Status.MarkContainerHealthyUnknown(v1alpha1.Deploying, "")
+		fmt.Println("FIRSSTSTSTTSTSTSSSSSSSSSSSSSSSSSSSSSSSS")
 		deployment, err = c.createDeployment(ctx, rev)
 		if err != nil {
 			return fmt.Errorf("failed to create deployment %q: %w", deploymentName, err)
@@ -114,10 +115,8 @@ func (c *Reconciler) reconcileImageCache(ctx context.Context, rev *v1alpha1.Revi
 
 	ns := rev.Namespace
 	imageName := resourcenames.ImageCache(rev)
-	_, err := c.imageLister.Images(ns).Get(imageName)
-	if apierrs.IsNotFound(err) {
-		_, err := c.createImageCache(ctx, rev)
-		if err != nil {
+	if _, err := c.imageLister.Images(ns).Get(imageName); apierrs.IsNotFound(err) {
+		if _, err := c.createImageCache(ctx, rev); err != nil {
 			return fmt.Errorf("failed to create image cache %q: %w", imageName, err)
 		}
 		logger.Infof("Created image cache %q", imageName)

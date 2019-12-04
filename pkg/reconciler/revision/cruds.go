@@ -44,6 +44,7 @@ func (c *Reconciler) createDeployment(ctx context.Context, rev *v1alpha1.Revisio
 		cfgs.Deployment,
 	)
 
+	fmt.Println("ERROR in create deployment", err)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make deployment: %w", err)
 	}

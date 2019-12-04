@@ -110,53 +110,78 @@ func rewriteUserProbe(p *corev1.Probe, userPort int) {
 
 func makePodSpec(rev *v1alpha1.Revision, loggingConfig *logging.Config, tracingConfig *tracingconfig.Config, observabilityConfig *metrics.ObservabilityConfig, deploymentConfig *deployment.Config) (*corev1.PodSpec, error) {
 	queueContainer, err := makeQueueContainer(rev, loggingConfig, tracingConfig, observabilityConfig, deploymentConfig)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to create queue-proxy container: %w", err)
 	}
 
-	userContainer := rev.Spec.GetContainer().DeepCopy()
-	// Adding or removing an overwritten corev1.Container field here? Don't forget to
-	// update the fieldmasks / validations in pkg/apis/serving
-
-	userContainer.VolumeMounts = append(userContainer.VolumeMounts, varLogVolumeMount)
-	userContainer.Lifecycle = userLifecycle
-	userPort := getUserPort(rev)
-	userPortInt := int(userPort)
-	userPortStr := strconv.Itoa(userPortInt)
-	// Replacement is safe as only up to a single port is allowed on the Revision
-	userContainer.Ports = buildContainerPorts(userPort)
-	userContainer.Env = append(userContainer.Env, buildUserPortEnv(userPortStr))
-	userContainer.Env = append(userContainer.Env, getKnativeEnvVar(rev)...)
-	// Explicitly disable stdin and tty allocation
-	userContainer.Stdin = false
-	userContainer.TTY = false
-
-	// Prefer imageDigest from revision if available
-	if rev.Status.ImageDigest != "" {
-		userContainer.Image = rev.Status.ImageDigest
+	containers := []corev1.Container{
+		*queueContainer,
 	}
 
-	if userContainer.TerminationMessagePolicy == "" {
-		userContainer.TerminationMessagePolicy = corev1.TerminationMessageFallbackToLogsOnError
-	}
-
-	if userContainer.ReadinessProbe != nil {
-		if userContainer.ReadinessProbe.HTTPGet != nil || userContainer.ReadinessProbe.TCPSocket != nil {
-			// HTTP and TCP ReadinessProbes are executed by the queue-proxy directly against the
-			// user-container instead of via kubelet.
-			userContainer.ReadinessProbe = nil
+	if len(rev.Spec.PodSpec.Containers) == 1 {
+		// do one way
+		userContainer := formContainer(rev.Spec.GetContainer().DeepCopy(), rev)
+		userPort := getUserPort(rev)
+		userPortInt := int(userPort)
+		userPortStr := strconv.Itoa(userPortInt)
+		// Prefer imageDigest from revision if available
+		if rev.Status.ImageDigest != "" {
+			userContainer.Image = rev.Status.ImageDigest
+		}
+		// Replacement is safe as only up to a single port is allowed on the Revision
+		userContainer.Ports = buildContainerPorts(userPort)
+		userContainer.Env = append(userContainer.Env, buildUserPortEnv(userPortStr))
+		// If the client provides probes, we should fill in the port for them.
+		rewriteUserProbe(userContainer.LivenessProbe, userPortInt)
+		if userContainer.ReadinessProbe != nil {
+			if userContainer.ReadinessProbe.HTTPGet != nil || userContainer.ReadinessProbe.TCPSocket != nil {
+				// HTTP and TCP ReadinessProbes are executed by the queue-proxy directly against the
+				// user-container instead of via kubelet.
+				userContainer.ReadinessProbe = nil
+			}
+		}
+		containers = append(containers, *userContainer)
+	} else {
+		for i := range rev.Spec.PodSpec.Containers{
+			for j := range rev.Spec.PodSpec.Containers[i].Ports {
+				if rev.Spec.PodSpec.Containers[i].Ports[j].ContainerPort != 0 {
+					userContainer := formContainer(rev.Spec.PodSpec.Containers[i].DeepCopy(), rev)
+					// Prefer imageDigest from revision if available
+					if rev.Status.ImageDigest != "" {
+						userContainer.Image = rev.Status.ImageDigest
+					}
+					//userContainer := formContainer(rev.Spec.GetContainer().DeepCopy(), rev)
+					userPort := getUserPort(rev)
+					userPortInt := int(userPort)
+					userPortStr := strconv.Itoa(userPortInt)
+					// Replacement is safe as only up to a single port is allowed on the Revision
+					userContainer.Ports = buildContainerPorts(userPort)
+					userContainer.Env = append(userContainer.Env, buildUserPortEnv(userPortStr))
+					// If the client provides probes, we should fill in the port for them.
+					rewriteUserProbe(userContainer.LivenessProbe, userPortInt)
+					if userContainer.ReadinessProbe != nil {
+						if userContainer.ReadinessProbe.HTTPGet != nil || userContainer.ReadinessProbe.TCPSocket != nil {
+							// HTTP and TCP ReadinessProbes are executed by the queue-proxy directly against the
+							// user-container instead of via kubelet.
+							userContainer.ReadinessProbe = nil
+						}
+					}
+					containers = appendConatiner(containers, *userContainer)
+				}
+			}
+			userconatiner2 := formContainer(rev.Spec.PodSpec.Containers[i].DeepCopy(), rev)
+			if userconatiner2.ReadinessProbe != nil {
+				if userconatiner2.ReadinessProbe.HTTPGet != nil || userconatiner2.ReadinessProbe.TCPSocket != nil {
+					// HTTP and TCP ReadinessProbes are executed by the queue-proxy directly against the
+					// user-container instead of via kubelet.
+					userconatiner2.ReadinessProbe = nil
+				}
+			}
+			containers = appendConatiner(containers, *userconatiner2)
 		}
 	}
-
-	// If the client provides probes, we should fill in the port for them.
-	rewriteUserProbe(userContainer.LivenessProbe, userPortInt)
-
 	podSpec := &corev1.PodSpec{
-		Containers: []corev1.Container{
-			*userContainer,
-			*queueContainer,
-		},
+		Containers: containers,
 		Volumes:                       append([]corev1.Volume{varLogVolume}, rev.Spec.Volumes...),
 		ServiceAccountName:            rev.Spec.ServiceAccountName,
 		TerminationGracePeriodSeconds: rev.Spec.TimeoutSeconds,
@@ -169,6 +194,34 @@ func makePodSpec(rev *v1alpha1.Revision, loggingConfig *logging.Config, tracingC
 	}
 
 	return podSpec, nil
+}
+
+// appendIfAbsent append namespace to member if its not exist
+func appendConatiner(old []corev1.Container, new corev1.Container) ([]corev1.Container) {
+	for key := range old {
+		if old[key].Name == new.Name {
+			// need to check with more negetive scenarios
+			return old
+		}
+	}
+	return append(old, new)
+}
+
+func formContainer(userContainer *corev1.Container, rev *v1alpha1.Revision) (*corev1.Container){
+
+
+	userContainer.VolumeMounts = append(userContainer.VolumeMounts, varLogVolumeMount)
+	userContainer.Lifecycle = userLifecycle
+	userContainer.Env = append(userContainer.Env, getKnativeEnvVar(rev)...)
+	// Explicitly disable stdin and tty allocation
+	userContainer.Stdin = false
+	userContainer.TTY = false
+
+	if userContainer.TerminationMessagePolicy == "" {
+		userContainer.TerminationMessagePolicy = corev1.TerminationMessageFallbackToLogsOnError
+	}
+
+	return userContainer
 }
 
 func getUserPort(rev *v1alpha1.Revision) int32 {
@@ -222,6 +275,9 @@ func MakeDeployment(rev *v1alpha1.Revision,
 		}
 	}
 	podSpec, err := makePodSpec(rev, loggingConfig, tracingConfig, observabilityConfig, deploymentConfig)
+	fmt.Println("Error while creating PodSpec", err)
+	fmt.Println("length of PODSPECECCECEE", len(podSpec.Containers))
+	fmt.Println("PODSPECECCECEE", podSpec.Containers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PodSpec: %w", err)
 	}
