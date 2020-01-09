@@ -191,7 +191,8 @@ type RevisionStatus struct {
 	// a tag or digest was originally specified in the Container object. It
 	// may be empty if the image comes from a registry listed to skip resolution.
 	// +optional
-	ImageDigest string `json:"imageDigest,omitempty"`
+	ImageDigest  string            `json:"imageDigest,omitempty"`
+	ImageDigests map[string]string `json:"imageDigests,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

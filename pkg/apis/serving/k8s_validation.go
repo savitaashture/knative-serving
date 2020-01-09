@@ -257,7 +257,15 @@ func ValidatePodSpec(ps corev1.PodSpec) *apis.FieldError {
 		errs = errs.Also(ValidateContainer(ps.Containers[0], volumes).
 			ViaFieldIndex("containers", 0))
 	default:
-		errs = errs.Also(apis.ErrMultipleOneOf("containers"))
+		errs = ValidateMultiContainerPorts(ps.Containers)
+		for i := range ps.Containers {
+			// probes are not allowed other than serving container
+			if len(ps.Containers[i].Ports) == 0 {
+				errs = errs.Also(ValidateMultiContainer(&ps.Containers[i], volumes))
+			} else {
+				errs = errs.Also(ValidateContainer(ps.Containers[i], volumes))
+			}
+		}
 	}
 	if ps.ServiceAccountName != "" {
 		for range validation.IsDNS1123Subdomain(ps.ServiceAccountName) {
@@ -267,7 +275,50 @@ func ValidatePodSpec(ps corev1.PodSpec) *apis.FieldError {
 	return errs
 }
 
+func ValidateMultiContainerPorts(containers []corev1.Container) *apis.FieldError {
+	cPort := []int32{}
+	var errs *apis.FieldError
+	for i := range containers {
+		for j := range containers[i].Ports {
+			cPort = append(cPort, containers[i].Ports[j].ContainerPort)
+		}
+	}
+	if len(cPort) == 0 {
+		errs = errs.Also(apis.ErrMissingField("containers.ports.containerPort"))
+	}
+	if len(cPort) > 1 {
+		errs = errs.Also(apis.ErrMultipleOneOf("containers.ports.containerPort"))
+	}
+
+	return errs
+}
+
+func ValidateMultiContainer(containers *corev1.Container, volumes sets.String) *apis.FieldError {
+	var errs *apis.FieldError
+	errs = errs.Also(validateMultiContainerProbe(containers.LivenessProbe).ViaField("livenessProbe"))
+	errs = errs.Also(validateMultiContainerProbe(containers.ReadinessProbe).ViaField("readinessProbe"))
+	errs = errs.Also(validateContainer(*containers, volumes))
+	return errs
+}
+
+func validateMultiContainerProbe(p *corev1.Probe) *apis.FieldError {
+	if p != nil {
+		return apis.CheckDisallowedFields(*p, *ProbeMask(&corev1.Probe{}))
+	}
+	return nil
+}
+
 func ValidateContainer(container corev1.Container, volumes sets.String) *apis.FieldError {
+	var errs *apis.FieldError
+	// Liveness Probes
+	errs = errs.Also(validateProbe(container.LivenessProbe).ViaField("livenessProbe"))
+	// Readiness Probes
+	errs = errs.Also(validateReadinessProbe(container.ReadinessProbe).ViaField("readinessProbe"))
+	errs = errs.Also(validateContainer(container, volumes))
+	return errs
+}
+
+func validateContainer(container corev1.Container, volumes sets.String) *apis.FieldError {
 	if equality.Semantic.DeepEqual(container, corev1.Container{}) {
 		return apis.ErrMissingField(apis.CurrentField)
 	}
@@ -296,12 +347,8 @@ func ValidateContainer(container corev1.Container, volumes sets.String) *apis.Fi
 		}
 		errs = errs.Also(fe)
 	}
-	// Liveness Probes
-	errs = errs.Also(validateProbe(container.LivenessProbe).ViaField("livenessProbe"))
 	// Ports
 	errs = errs.Also(validateContainerPorts(container.Ports).ViaField("ports"))
-	// Readiness Probes
-	errs = errs.Also(validateReadinessProbe(container.ReadinessProbe).ViaField("readinessProbe"))
 	// Resources
 	errs = errs.Also(validateResources(&container.Resources).ViaField("resources"))
 	// SecurityContext

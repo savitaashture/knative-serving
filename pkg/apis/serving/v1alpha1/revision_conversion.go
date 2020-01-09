@@ -63,10 +63,8 @@ func (source *RevisionSpec) ConvertUp(ctx context.Context, sink *v1.RevisionSpec
 			Volumes:            source.Volumes,
 			ImagePullSecrets:   source.ImagePullSecrets,
 		}
-	case len(source.Containers) == 1:
+	case len(source.Containers) != 0:
 		sink.PodSpec = source.PodSpec
-	case len(source.Containers) > 1:
-		return apis.ErrMultipleOneOf("containers")
 	default:
 		return apis.ErrMissingOneOf("container", "containers")
 	}

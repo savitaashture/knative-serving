@@ -18,7 +18,6 @@ package v1alpha1
 
 import (
 	"context"
-
 	"k8s.io/apimachinery/pkg/api/equality"
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/kmp"
@@ -101,21 +100,27 @@ func (rs *RevisionSpec) Validate(ctx context.Context) *apis.FieldError {
 	}
 
 	errs := apis.CheckDeprecated(ctx, rs)
-
+	volumes, err := serving.ValidateVolumes(rs.Volumes)
+	if err != nil {
+		errs = errs.Also(err.ViaField("volumes"))
+	}
 	switch {
 	case len(rs.PodSpec.Containers) > 0 && rs.DeprecatedContainer != nil:
 		errs = errs.Also(apis.ErrMultipleOneOf("container", "containers"))
 	case len(rs.PodSpec.Containers) > 0:
 		errs = errs.Also(rs.RevisionSpec.Validate(ctx))
 	case rs.DeprecatedContainer != nil:
-		volumes, err := serving.ValidateVolumes(rs.Volumes)
-		if err != nil {
-			errs = errs.Also(err.ViaField("volumes"))
-		}
 		errs = errs.Also(serving.ValidateContainer(
 			*rs.DeprecatedContainer, volumes).ViaField("container"))
 	default:
-		errs = errs.Also(apis.ErrMissingOneOf("container", "containers"))
+		errs = serving.ValidateMultiContainerPorts(rs.PodSpec.Containers)
+		for i := range rs.PodSpec.Containers {
+			if len(rs.PodSpec.Containers[i].Ports) == 0 {
+				errs = errs.Also(serving.ValidateMultiContainer(&rs.PodSpec.Containers[i], volumes))
+			} else {
+				errs = errs.Also(serving.ValidateContainer(rs.PodSpec.Containers[i], volumes))
+			}
+		}
 	}
 
 	if rs.DeprecatedBuildRef != nil {

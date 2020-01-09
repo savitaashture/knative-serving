@@ -195,7 +195,6 @@ func makeQueueContainer(rev *v1alpha1.Revision, loggingConfig *logging.Config, t
 	serviceName := rev.Labels[serving.ServiceLabelKey]
 
 	userPort := getUserPort(rev)
-
 	var loggingLevel string
 	if ll, ok := loggingConfig.LoggingLevel["queueproxy"]; ok {
 		loggingLevel = ll.String()

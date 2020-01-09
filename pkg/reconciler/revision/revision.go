@@ -130,7 +130,7 @@ func (c *Reconciler) Reconcile(ctx context.Context, key string) error {
 
 func (c *Reconciler) reconcileDigest(ctx context.Context, rev *v1alpha1.Revision) error {
 	// The image digest has already been resolved.
-	if rev.Status.ImageDigest != "" {
+	if rev.Status.ImageDigest != "" && len(rev.Status.ImageDigests) == len(rev.Spec.Containers)-1 {
 		return nil
 	}
 
@@ -144,18 +144,30 @@ func (c *Reconciler) reconcileDigest(ctx context.Context, rev *v1alpha1.Revision
 		ServiceAccountName: rev.Spec.ServiceAccountName,
 		ImagePullSecrets:   imagePullSecrets,
 	}
-	digest, err := c.resolver.Resolve(rev.Spec.GetContainer().Image,
-		opt, cfgs.Deployment.RegistriesSkippingTagResolving)
-	if err != nil {
-		err = fmt.Errorf("failed to resolve image to digest: %w", err)
-		rev.Status.MarkContainerHealthyFalse(v1alpha1.ContainerMissing,
-			v1alpha1.RevisionContainerMissingMessage(
-				rev.Spec.GetContainer().Image, err.Error()))
-		return err
+
+	for i := range rev.Spec.Containers {
+		digest, err := c.resolver.Resolve(rev.Spec.Containers[i].Image,
+			opt, cfgs.Deployment.RegistriesSkippingTagResolving)
+		if err != nil {
+			err = fmt.Errorf("failed to resolve image to digest: %w", err)
+			rev.Status.MarkContainerHealthyFalse(v1alpha1.ContainerMissing,
+				v1alpha1.RevisionContainerMissingMessage(
+					rev.Spec.Containers[i].Image, err.Error()))
+			return err
+		}
+		if len(rev.Spec.Containers) == 1 {
+			rev.Status.ImageDigest = digest
+		} else if len(rev.Spec.Containers) > 1 {
+			if len(rev.Spec.Containers[i].Ports) != 0 {
+				rev.Status.ImageDigest = digest
+			} else {
+				if rev.Status.ImageDigests == nil {
+					rev.Status.ImageDigests = make(map[string]string)
+				}
+				rev.Status.ImageDigests[rev.Spec.Containers[i].Name] = digest
+			}
+		}
 	}
-
-	rev.Status.ImageDigest = digest
-
 	return nil
 }
 

@@ -43,7 +43,6 @@ func (c *Reconciler) createDeployment(ctx context.Context, rev *v1alpha1.Revisio
 		cfgs.Observability,
 		cfgs.Deployment,
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to make deployment: %w", err)
 	}
@@ -107,9 +106,8 @@ func (c *Reconciler) checkAndUpdateDeployment(ctx context.Context, rev *v1alpha1
 	return d, nil
 }
 
-func (c *Reconciler) createImageCache(ctx context.Context, rev *v1alpha1.Revision) (*caching.Image, error) {
-	image := resources.MakeImageCache(rev)
-
+func (c *Reconciler) createImageCache(ctx context.Context, rev *v1alpha1.Revision, containerName string) (*caching.Image, error) {
+	image := resources.MakeImageCache(rev, containerName)
 	return c.CachingClientSet.CachingV1alpha1().Images(image.Namespace).Create(image)
 }
 
