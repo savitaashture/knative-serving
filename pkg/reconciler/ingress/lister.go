@@ -79,6 +79,8 @@ func (l *gatewayPodTargetLister) ListProbeTargets(ctx context.Context, ing *v1al
 			continue
 		}
 		for _, target := range targets {
+                        fmt.Println("Target PORT values", target.Port)
+			fmt.Println("Target URL value", target.URLs)
 			qualifiedTarget := status.ProbeTarget{
 				PodIPs: target.PodIPs,
 				Port:   target.Port,
@@ -87,7 +89,8 @@ func (l *gatewayPodTargetLister) ListProbeTargets(ctx context.Context, ing *v1al
 			// Use sorted hosts list for consistent ordering.
 			for i, host := range gatewayHosts[gatewayName].List() {
 				newURL := *target.URLs[0]
-				newURL.Host = host + ":" + target.Port
+				//newURL.Host = host + ":" + target.Port
+				newURL.Host = host
 				qualifiedTarget.URLs[i] = &newURL
 			}
 			results = append(results, qualifiedTarget)
